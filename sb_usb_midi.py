@@ -3,27 +3,16 @@
 #
 # Driver for USB MIDI devices.
 #
-# NOTE: This code uses performance boosting tricks to avoid bogging down the
-# CPU or making a lot of heap allocations. To learn more about caching function
-# references, caching instance variables, and making iterators with generator
-# functions, check out the links below.
-#
-# Related docs:
-# - https://docs.circuitpython.org/projects/logging/en/latest/api.html
-# - https://learn.adafruit.com/a-logger-for-circuitpython/overview
+# NOTE: USB MIDI is CPU intensive. To help keep latency low, this code uses
+# performance boosting tricks with a special focus on limiting the amount of
+# heap allocations. Related docs:
 # - https://docs.python.org/3/glossary.html#term-generator
 # - https://docs.python.org/3/glossary.html#term-iterable
 # - https://docs.micropython.org/en/latest/reference/speed_python.html
 #
-import binascii
 import gc
-from micropython import const
-from struct import unpack, unpack_from
-from supervisor import ticks_ms
-from time import sleep
 from usb import core
 from usb.core import USBError, USBTimeoutError
-from usb.util import SPEED_LOW, SPEED_FULL, SPEED_HIGH
 
 import sb_usb_descriptor
 
@@ -77,21 +66,6 @@ class ScanResult:
         self.int1_info = descriptor.class_subclass_protocol(1)
 
 
-def elapsed_ms_generator():
-    # Generator function for measuring time intervals efficiently.
-    # - returns: an iterator
-    # - iterator yields: ms since last call to next(iterator)
-    #
-    ms = ticks_ms      # caching function ref avoids dictionary lookups
-    mask = 0x3fffffff  # (2**29)-1 because ticks_ms rolls over at 2**29
-    t0 = ms()
-    while True:
-        t1 = ms()
-        delta = (t1 - t0) & mask  # handle possible timer rollover gracefully
-        t0 = t1
-        yield delta
-
-
 class MIDIInputDevice:
     def __init__(self, scan_result):
         # Prepare for reading input events from specified device
@@ -99,8 +73,6 @@ class MIDIInputDevice:
         # Exceptions: may raise usb.core.USBError
         #
         device = scan_result.device
-        self._prev = 0
-        self.buf64 = bytearray(64)
         self.device = device
         # Make sure CircuitPython core is not claiming the device
         interface = 1
