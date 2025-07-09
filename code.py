@@ -41,8 +41,7 @@ def init_display(width, height, color_depth):
 
 def main():
     # Configure display with requested picodvi video mode
-    (width, height, color_depth) = (320, 240, 8)
-    display = init_display(width, height, color_depth)
+    display = init_display(320, 240, 16)
     display.auto_refresh = False
     grp = Group(scale=1)
     display.root_group = grp
@@ -87,6 +86,7 @@ def main():
         display.refresh()
 
     show_scan_msg = True
+    prev_b1 = button_1.value
     while True:
         if show_scan_msg:
             print()
@@ -115,12 +115,26 @@ def main():
             )
 
             # Poll for input until Button #1 pressed or USB error
+            scan_result = None
+            r = None
+            device_cache = None
+            gc.collect()
             for data in dev.input_event_generator():
-                if not button_1.value:             # Fruit Jam Button #1 pressed
-                    break
-                if data is None or len(data) == 0: # Rate limit or USB timeout
+                # Check for boot button (Fruit Jam Button #1) press to trigger
+                # re-scan of USB bus by exiting the for loop. This should only
+                # trigger for the falling edge of button_1.value.
+                if not button_1.value:
+                    if prev_b1:
+                        prev_b1 = False
+                        break
+                else:
+                    prev_b1 = True
+                # Handle input
+                if data is None or len(data) == 0:
+                    # No data is ready yet. This is normal and fine.
                     continue
-                else:                              # Raw data bytes
+                else:
+                    # Got some data, so display it
                     set_report(data)
             show_scan_msg = True
         except USBError as e:

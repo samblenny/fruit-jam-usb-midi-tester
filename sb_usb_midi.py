@@ -58,6 +58,8 @@ def find_usb_device(device_cache):
                 print("IGNORING UNRECOGNIZED DEVICE")
                 return None
         except ValueError as e:
+            # This can happen if we get a 0 length device descriptor. Usually
+            # it works fine to ignore the error and try again.
             print(e)
         except USBError as e:
             print("find_usb_device() USBError: '%s'" % e)
@@ -121,71 +123,20 @@ class MIDIInputDevice:
         # - yields: (2 possibilities)
         #   1. A memoryview(bytearray(...)) with raw or filtered data from
         #      polling the default endpoint.
-        #   2. None in the case of a timeout or rate limit throttle
+        #   2. None in the case of a timeout
         # Exceptions: may raise USBError
         #
         if self.device is None:
             return None
-        else:
-            return self.int1_read_generator()
-
-    def int1_read_generator(self, filter_fn=lambda d: d):
-        # Generator function: read from interface 1 and yield raw report data
-        # - filter_fn: Optional lambda function to modify raw reports.
-        # - yields: memoryview of bytes
-        # Exceptions: may raise USBError
-        #
-        # Meaning of bInterval depends on negotiated speed:
-        # - USB 2.0 spec: 5.6.4 Isochronous Transfer Bus Access Constraints
-        # - USB 2.0 spec: 9.6.6 Endpoint (table 9-13)
-        # - Low-speed: max time between polling requests = bInterval * 1 ms
-        # - Full-speed: max time = bInterval * 1 ms
-        # - High-speed: max time = math.pow(2, bInterval-1) * 125 µs
-        #
-        # This implementation alternates between two data buffers so it's
-        # possible to compare the previous report with the current report
-        # without having to heap allocate a new buffer every time.
-        #
         in_addr = self.int1_endpoint_in.bEndpointAddress
-        interval = self.int1_endpoint_in.bInterval
-        if self.device.speed == SPEED_LOW:
-            print('LOW SPEED, period = %d ms' % interval)
-        elif self.device.speed == SPEED_FULL:
-            print('FULL SPEED, period = %d ms' % interval)
-        elif self.device.speed == SPEED_HIGH:
-            # Units here are 125 µs or (1 ms)/8. Since timer resolution we have
-            # available is 1 ms, quantize the requested interval to 1 ms units
-            # (left shift 3 to divide by 8).
-            interval = (2 << (interval - 1)) >> 3
-            print('HIGH SPEED, period = %d ms' % interval)
         max_packet = min(64, self.int1_endpoint_in.wMaxPacketSize)
         data = bytearray(max_packet)
         view = memoryview(data)  # memoryview reduces heap allocations
         read = self.device.read  # cache function to avoid dictionary lookups
-
-        # Make timer to throttle the polling rate because...
-        # 1. Reading USB too much bogs down the system and fights with DVI
-        # 2. Waiting too long to read USB will upset some devices
-        poll_ms = 0
-        poll_dt = elapsed_ms_generator()
-        poll_target = (interval * 3) >> 2  # 75% of the max polling interval
-
-        # Polling loop
         while True:
-            poll_ms += next(poll_dt)
-            if poll_ms < poll_target:
-                yield None  # It's too soon to poll now
-                continue
-            else:
-                poll_ms = 0
-
-            # Enough time has passed, so poll endpoint.
-            # NOTE: This is using a lambda function provided by the caller to
-            # filter the raw data read from the endpoint. The lambda function
-            # can return None when the current read should be skipped.
             try:
-                    n = read(in_addr, data, timeout=3)
-                    yield filter_fn(view[:n])
+                n = read(in_addr, data, timeout=3)
+                yield view[:n]
             except USBTimeoutError as e:
                 # This is normal. Timeouts happen fairly often.
                 yield None

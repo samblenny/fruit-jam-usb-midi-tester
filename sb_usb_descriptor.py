@@ -243,7 +243,7 @@ class Descriptor:
         # ---
         # Change this value to pick which output format style to use.
         # The hexdumps are helpful for debugging parser code.
-        skip_hexdump = False
+        skip_hexdump = True
         # ---
         if skip_hexdump:
             # Short format without hexdumps
