@@ -36,10 +36,10 @@ def find_usb_device(device_cache):
             desc.read_configuration(device)
             print(desc)
             # Get tuples of class/subclass/protocol for device and interfaces
-            d = desc.dev_class_subclass_protocol()
-            i0 = desc.class_subclass_protocol(0)
-            i1 = desc.class_subclass_protocol(1)
-            if d == (0, 0, 0) and i0 == (1, 1, 0) and i1 == (1, 3, 0):
+            d = desc.dev_class_subclass()
+            i0 = desc.int_class_subclass(0)
+            i1 = desc.int_class_subclass(1)
+            if d == (0, 0) and i0 == (1, 1) and i1 == (1, 3):
                 print("interface 0 is Audio Control")
                 print("interface 1 is MIDI Streaming")
                 return ScanResult(device, desc)
@@ -61,9 +61,9 @@ class ScanResult:
         self.descriptor = descriptor
         self.vid = descriptor.idVendor
         self.pid = descriptor.idProduct
-        self.dev_info = descriptor.dev_class_subclass_protocol()
-        self.int0_info = descriptor.class_subclass_protocol(0)
-        self.int1_info = descriptor.class_subclass_protocol(1)
+        self.dev_info = descriptor.dev_class_subclass()
+        self.int0_info = descriptor.int_class_subclass(0)
+        self.int1_info = descriptor.int_class_subclass(1)
 
 
 class MIDIInputDevice:
@@ -90,7 +90,14 @@ class MIDIInputDevice:
         self.int1_endpoint_out = endpoint_out
 
     def input_event_generator(self):
+        # Read USB input events _as efficiently as possible_.
+        #
         # This is a generator that makes an iterable for reading input events.
+        # The code structure here is weird because it's using MicroPython
+        # performance boosting tricks to reduce CPU cycles spent on dictionary
+        # lookups, function calls, and heap allocations. The goal is to read
+        # input fast enough to avoid audible latency glitches.
+        #
         # - returns: iterable that can be used with a for loop
         # - yields: (2 possibilities)
         #   1. A memoryview(bytearray(...)) with raw or filtered data from
@@ -98,16 +105,17 @@ class MIDIInputDevice:
         #   2. None in the case of a timeout
         # Exceptions: may raise USBError
         #
-        if self.device is None:
-            return None
-        in_addr = self.int1_endpoint_in.bEndpointAddress
+        addr = self.int1_endpoint_in.bEndpointAddress
         max_packet = min(64, self.int1_endpoint_in.wMaxPacketSize)
         data = bytearray(max_packet)
-        view = memoryview(data)  # memoryview reduces heap allocations
-        read = self.device.read  # cache function to avoid dictionary lookups
+        view = memoryview(data)  # using memoryview reduces heap allocations
+        read = self.device.read  # caching function avoids dictionary lookups
+        ms = 3                   # read timeout
         while True:
             try:
-                n = read(in_addr, data, timeout=3)
+                # In theory, using a positional argument for the timeout should
+                # be faster than using a `timeout=ms` keyword argument
+                n = read(addr, data, ms)
                 yield view[:n]
             except USBTimeoutError as e:
                 # This is normal. Timeouts happen fairly often.

@@ -168,19 +168,16 @@ class Descriptor:
     def vid_pid(self):
         return (self.idVendor, self.idProduct)
 
-    def dev_class_subclass_protocol(self):
-        # Get device descriptor;s class, subclass, and protocol
-        return (self.bDeviceClass, self.bDeviceSubClass, self.bDeviceProtocol)
+    def dev_class_subclass(self):
+        # Get device descriptor's class and subclass
+        return (self.bDeviceClass, self.bDeviceSubClass)
 
-    def class_subclass_protocol(self, interface):
-        # Get requested interface descriptor's class, subclass, and protocol
+    def int_class_subclass(self, interface):
+        # Get requested interface descriptor's class and subclass
         for i in self.interfaces:
             if i.bInterfaceNumber == interface:
-                return (
-                    i.bInterfaceClass,
-                    i.bInterfaceSubClass,
-                    i.bInterfaceProtocol)
-        return (None, None, None)
+                return (i.bInterfaceClass, i.bInterfaceSubClass)
+        return (None, None)
 
     def output_endpoints(self, interface):
         # Get list of output endpoints for requested interface

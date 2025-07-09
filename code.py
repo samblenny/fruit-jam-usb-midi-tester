@@ -72,57 +72,45 @@ def main():
         if log_it:
             print(msg)
 
-    # Define report label updater with access to local vars from main()
-    def set_report(data):
-        if data is None:
-            report.text = ''
-        elif isinstance(data, str):
-            print('%s' % data)
-            report.text = data
-        else:
-            msg = ' '.join(['%02x' % b for b in data])
-            print('%s' % msg)
-            report.text = msg
-        display.refresh()
-
-    show_scan_msg = True
     prev_b1 = button_1.value
     while True:
-        if show_scan_msg:
-            print()
-            set_status("Scanning USB bus...", log_it=True)
-            set_report(None)
-            show_scan_msg = False
+        set_status("Scanning USB bus...", log_it=True)
+        report.text = ''
+        display.refresh()
         gc.collect()
         device_cache = {}
         try:
-            scan_result = find_usb_device(device_cache)
-            if scan_result is None:
-                # No connection yet, so sleep briefly then try the find again
+            # This loop will end as soon as it finds a ScanResult object (r)
+            r = None
+            while r is None:
                 sleep(0.4)
-                continue
-            # Found device, so show descriptor info
-            dev = MIDIInputDevice(scan_result)
-            r = scan_result
+                r = find_usb_device(device_cache)
+            # Use ScanResult object to check if USB device descriptor info
+            # matches the class/sublclass/protocol pattern for a MIDI device
+            dev = MIDIInputDevice(r)
             set_status((
-                "%04X:%04X \n"            # vid:pid
-                "dev  %02X:%02X:%02X\n"   # device class:subclass:protocol
-                "int0 %02X:%02X:%02X\n"   # interface 0 class:subclass:proto.
-                "int1 %02X:%02X:%02X\n"   # interface 1 class:subclass:proto.
+                "vid:pid      %04X:%04X\n"
+                "device       %02X:%02X (class:subclass)\n"
+                "interface 0  %02X:%02X\n"
+                "interface 1  %02X:%02X\n"
                 ) % (
                     (r.vid, r.pid) + r.dev_info + r.int0_info + r.int1_info
                 )
             )
-
-            # Poll for input until Button #1 pressed or USB error
-            scan_result = None
+            # Collect garbage to hopefully limit heap fragmentation. If we're
+            # lucky, this may help to avoid gc pauses during MIDI input loop.
             r = None
-            device_cache = None
+            device_cache = {}
             gc.collect()
+            # Cache function references (MicroPython performance boost trick)
+            fast_wr = sys.stdout.write
+            refresh = display.refresh
+            # Poll for input until Button #1 pressed or USB error.
+            # CAUTION: This loop needs to be as efficient as possible. Any
+            # extra work here directly adds time to USB MIDI read latency.
             for data in dev.input_event_generator():
-                # Check for boot button (Fruit Jam Button #1) press to trigger
-                # re-scan of USB bus by exiting the for loop. This should only
-                # trigger for the falling edge of button_1.value.
+                # Check for falling edge of Fruit Jam Button #1 (boot button)
+                # press to trigger re-scan of USB bus
                 if not button_1.value:
                     if prev_b1:
                         prev_b1 = False
@@ -131,20 +119,20 @@ def main():
                     prev_b1 = True
                 # Handle input
                 if data is None or len(data) == 0:
-                    # No data is ready yet. This is normal and fine.
+                    # No data is ready yet
                     continue
                 else:
-                    # Got some data, so display it
-                    set_report(data)
-            show_scan_msg = True
+                    # Update serial console and picodvi display
+                    msg = ' '.join(['%02x' % b for b in data])
+                    fast_wr('%s\n' % msg)
+                    report.text = msg
+                    refresh()
         except USBError as e:
             # This sometimes happens when devices are unplugged. Not always.
-            print()
             print("USBError: '%s' (device unplugged?)" % e)
             show_scan_msg = True
         except ValueError as e:
             # This can happen if an initialization handshake glitches
-            print()
             print(e)
             show_scan_msg = True
 
