@@ -184,7 +184,7 @@ class MIDIInputDevice:
             # filter the raw data read from the endpoint. The lambda function
             # can return None when the current read should be skipped.
             try:
-                    n = read(in_addr, data, timeout=1)
+                    n = read(in_addr, data, timeout=3)
                     yield filter_fn(view[:n])
             except USBTimeoutError as e:
                 # This is normal. Timeouts happen fairly often.
