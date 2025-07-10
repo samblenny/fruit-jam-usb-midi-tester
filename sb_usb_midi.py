@@ -99,10 +99,9 @@ class MIDIInputDevice:
         # input fast enough to avoid audible latency glitches.
         #
         # - returns: iterable that can be used with a for loop
-        # - yields: (2 possibilities)
-        #   1. A memoryview(bytearray(...)) with raw or filtered data from
-        #      polling the default endpoint.
-        #   2. None in the case of a timeout
+        # - iterable can yield:
+        #   1. A memoryview(bytearray(...)) with a 4 byte usb midi packet, or
+        #   2. None (read timeout, filtered out clock timing packet, etc)
         # Exceptions: may raise USBError
         #
         addr = self.int1_endpoint_in.bEndpointAddress
@@ -116,7 +115,22 @@ class MIDIInputDevice:
                 # In theory, using a positional argument for the timeout should
                 # be faster than using a `timeout=ms` keyword argument
                 n = read(addr, data, ms)
-                yield view[:n]
+                # Bulk read result will be 0 or more 4-byte midi packets, so
+                # split that up into 4-byte memoryview slices
+                nada = True
+                for i in range(0, n, 4):
+                    cin = view[i] & 0x0f
+                    if cin == 0x0d or (cin == 0x0f and view[i+1] == 0xf8):
+                        # Filter out common high frequency messages to reduce
+                        # cpu load (channel aftertouch, sequencer time ticks)
+                        continue
+                    else:
+                        # Allow note, cc, system exclusive, etc.
+                        nada = False
+                        yield view[i:i+4]
+                if nada:
+                    # Bulk read was 0 bytes long or nothing passed the filter
+                    yield None
             except USBTimeoutError as e:
                 # This is normal. Timeouts happen fairly often.
                 yield None
