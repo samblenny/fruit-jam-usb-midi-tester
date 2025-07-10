@@ -57,7 +57,7 @@ def main():
     report = bitmap_label.Label(FONT, text="", color=0xFFFFFF, scale=1)
     report.line_spacing = 1.0
     report.anchor_point = (0, 0)
-    report.anchored_position = (8, 54 + (12*4))
+    report.anchored_position = (8, 54 + (12*5))
     grp.append(report)
 
     # Configure button #1 as input to trigger USB bus re-connect
@@ -109,24 +109,34 @@ def main():
             # CAUTION: This loop needs to be as efficient as possible. Any
             # extra work here directly adds time to USB MIDI read latency.
             for data in dev.input_event_generator():
-                # Check for falling edge of Fruit Jam Button #1 (boot button)
-                # press to trigger re-scan of USB bus
+                # Check for falling edge of button press (triggers usb re-scan)
                 if not button_1.value:
                     if prev_b1:
                         prev_b1 = False
                         break
                 else:
                     prev_b1 = True
-                # Handle input
-                if data is None or len(data) == 0:
-                    # No data is ready yet
+                # Handle midi packet (should be None or 4-byte memoryview)
+                if data is None:
                     continue
+                # Parse packet
+                cin = data[0] & 0x0f
+                chan = (data[1] & 0x0f) + 1
+                if cin == 0x08:
+                    # Note off
+                    msg = 'ch%d NoteOff %d %d' % (chan, data[2], data[3])
+                elif cin == 0x09:
+                    # Note on
+                    msg = 'ch%d NoteOn  %d %d' % (chan, data[2], data[3])
+                elif cin == 0x0b:
+                    # CC (control change)
+                    msg = 'ch%d CC %d %d' % (chan, data[2], data[3])
                 else:
-                    # Update serial console and picodvi display
                     msg = ' '.join(['%02x' % b for b in data])
-                    fast_wr('%s\n' % msg)
-                    report.text = msg
-                    refresh()
+                # Update serial console and picodvi display
+                fast_wr('%s\n' % msg)
+                report.text = msg
+                refresh()
         except USBError as e:
             # This sometimes happens when devices are unplugged. Not always.
             print("USBError: '%s' (device unplugged?)" % e)
