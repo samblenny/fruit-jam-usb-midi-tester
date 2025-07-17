@@ -120,12 +120,11 @@ class MIDIInputDevice:
                 nada = True
                 for i in range(0, n, 4):
                     cin = view[i] & 0x0f
-                    if cin == 0x0d or (cin == 0x0f and view[i+1] == 0xf8):
-                        # Filter out common high frequency messages to reduce
-                        # cpu load (channel aftertouch, sequencer time ticks)
-                        continue
+                    if cin == 0x0f and (0xf8 <= view[i+1] <= 0xff):
+                        nada = False
+                        yield view[i:i+4]
                     else:
-                        # Allow note, cc, system exclusive, etc.
+                        # Allow note, cc, non-realtime system exclusive, etc.
                         nada = False
                         yield view[i:i+4]
                 if nada:

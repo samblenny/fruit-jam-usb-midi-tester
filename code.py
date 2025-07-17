@@ -7,6 +7,7 @@ import displayio
 from displayio import Bitmap, Group, Palette, TileGrid
 import framebufferio
 import gc
+from micropython import const
 import picodvi
 import supervisor
 import sys
@@ -81,7 +82,7 @@ def main():
             return
         # Calculate coordinates for a rectangle in the background image's grid
         # of channels and notes. These formulas come from measuring pixels
-        # in an image editor (dot grid spacing is 3px per note, 6px per chanel)
+        # in an image editor (dot grid spacing is 3px per note, 6px per chan)
         x1 = 28 + (3 * (num - 21))
         y1 = 16 + (6 * (chan - 1))
         color_val = 2 if note_on else 0
@@ -94,6 +95,7 @@ def main():
         if log_it:
             print(msg)
 
+    # Main loop: scan for usb MIDI device, connect, handle input events
     prev_b1 = button_1.value
     while True:
         set_status("USB Host\n scanning bus...", log_it=True)
@@ -108,7 +110,7 @@ def main():
                 sleep(0.4)
                 r = find_usb_device(device_cache)
             # Use ScanResult object to check if USB device descriptor info
-            # matches the class/sublclass/protocol pattern for a MIDI device
+            # matches the class/subclass/protocol pattern for a MIDI device
             dev = MIDIInputDevice(r)
             set_status(
                 "USB Host\n MIDI Device\n vid:pid %04X:%04X\n" % (r.vid, r.pid)
@@ -124,6 +126,11 @@ def main():
             # Poll for input until Button #1 pressed or USB error.
             # CAUTION: This loop needs to be as efficient as possible. Any
             # extra work here directly adds time to USB MIDI read latency.
+            # The pp_skip and cp_skip variables help with thinning out channel
+            # and polyphonic key pressure (aftertouch) messages.
+            SKIP = const(6)
+            pp_skip = SKIP
+            cp_skip = SKIP
             for data in dev.input_event_generator():
                 # Check for falling edge of button press (triggers usb re-scan)
                 if not button_1.value:
@@ -135,28 +142,71 @@ def main():
                 # Handle midi packet (should be None or 4-byte memoryview)
                 if data is None:
                     continue
-                # Parse packet
+
+                # Begin Parsing Packet
+                # NOTE: The & 0x0f below is a bitwise logical operation for
+                # masking off the CN (Cable Number) bits that indicate which
+                # midi port the message arrived from. Ignoring the cable number
+                # lets us filter more efficiently.
+                #     For example, on my BeatStep Pro, regular sequencer notes
+                # and CC happen on CN==0, while CN==1 has "MCU" (Mackie
+                # Control) messages. When set for "Control Mode" with the
+                # "MCU/HUI" knob sub-mode, the BSP sends relative knob turn
+                # amount events for use with DAW software. Ignoring CN lets us
+                # merge all the midi input streams to filter more efficiently.
                 cin = data[0] & 0x0f
+
+                # Filter out all System Real-Time messages. Sequencer playback
+                # commonly sends start/stop messages along with _many_ timing
+                # clocks. Dropping real-time messages conserves CPU to spend on
+                # handling note and cc messages.
+                if cin == 0x0f and (0xf8 <= data[1] <= 0xff):
+                    continue
+
+                # Handle notes, cc, aftertouch, pitchbend, etc.
                 chan = (data[1] & 0x0f) + 1
                 num = data[2]    # note or control number
                 if cin == 0x08:
                     # Note off
-                    msg = 'ch%d NoteOff %d %d' % (chan, num, data[3])
-                    visualize(chan, num, False)  # visualize in note grid
+                    msg = 'Off %d %d %d\n' % (chan, num, data[3])
+                    visualize(chan, num, False)        # visualize in note grid
                 elif cin == 0x09:
                     # Note on
-                    msg = 'ch%d NoteOn  %d %d' % (chan, num, data[3])
-                    visualize(chan, num, True)  # visualize in note grid
+                    msg = 'On  %d %d %d\n' % (chan, num, data[3])
+                    visualize(chan, num, True)         # visualize in note grid
+                elif cin == 0x0a:
+                    # Polyphonic key pressure (aftertouch)
+                    if pp_skip > 0:
+                        # Ignore some of the polyphonic pressure messages
+                        # because processing them all can destroy our latency
+                        pp_skip -= 1
+                        continue
+                    pp_skip = SKIP
+                    msg = 'PP  %d %d %d\n' % (chan, num, data[3])
                 elif cin == 0x0b:
                     # CC (control change)
-                    msg = 'ch%d CC %d %d' % (chan, num, data[3])
-                    event.text = msg   # visualize using hexdump
+                    msg = 'CC  %d %d %d\n' % (chan, num, data[3])
+                elif cin == 0x0d:
+                    # Channel key pressure (aftertouch)
+                    if cp_skip > 0:
+                        # Ignore some of the channel pressure messages
+                        # because processing them all can destroy our latency
+                        cp_skip -= 1
+                        continue
+                    cp_skip = SKIP
+                    msg = 'CP  %d %d\n' % (chan, num)
+                elif cin == 0x0e:
+                    # Pitch bend
+                    msg = 'PB  %d %d %d\n' % (chan, num, data[3])
                 else:
-                    # Other messages: SysEx, pitch bend, or whatever
-                    msg = ' '.join(['%02x' % b for b in data])
-                    event.text = msg   # visualize using hexdump
-                # Always send message to serial console
-                fast_wr('%s\n' % msg)
+                    # Hexdump other messages: SysEx or whatever
+                    msg = '%02x %02x %02x %02x\n' % tuple(data)
+                # Send message to serial console
+                fast_wr(msg)
+                # Visualize non-note messages in text box
+                if cin != 0x08 and cin != 0x09:
+                    event.text = msg
+                # Draw the picodvi updates
                 refresh()
         except USBError as e:
             # This sometimes happens when devices are unplugged. Not always.
