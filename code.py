@@ -16,6 +16,7 @@ from usb.core import USBError, USBTimeoutError
 import usb_host
 
 from adafruit_display_text import bitmap_label
+import adafruit_imageload
 
 from sb_usb_midi import find_usb_device, MIDIInputDevice
 
@@ -46,19 +47,25 @@ def main():
     grp = Group(scale=1)
     display.root_group = grp
 
+    # Load background image and palette from file
+    (bg_bitmap, bg_palette) = adafruit_imageload.load(
+        "background.bmp", bitmap=Bitmap, palette=Palette)
+    bg_tg = TileGrid(bg_bitmap, pixel_shader=bg_palette)
+    grp.append(bg_tg)
+
+    # Text label for input event data
+    event = bitmap_label.Label(FONT, text="", color=0xFFFFFF, scale=1)
+    event.line_spacing = 1.0
+    event.anchor_point = (0, 0)
+    event.anchored_position = (16, 160)  # Bottom left rounded rectangle
+    grp.append(event)
+
     # Text label for status messages
     status = bitmap_label.Label(FONT, text="", color=0xFFFFFF, scale=1)
     status.line_spacing = 1.0
     status.anchor_point = (0, 0)
-    status.anchored_position = (8, 54)
+    status.anchored_position = (172, 160)  # Bottom right rounded rectangle
     grp.append(status)
-
-    # Text label for input event data
-    report = bitmap_label.Label(FONT, text="", color=0xFFFFFF, scale=1)
-    report.line_spacing = 1.0
-    report.anchor_point = (0, 0)
-    report.anchored_position = (8, 54 + (12*5))
-    grp.append(report)
 
     # Configure button #1 as input to trigger USB bus re-connect
     button_1 = DigitalInOut(BUTTON1)
@@ -75,7 +82,7 @@ def main():
     prev_b1 = button_1.value
     while True:
         set_status("Scanning USB bus...", log_it=True)
-        report.text = ''
+        event.text = ''
         display.refresh()
         gc.collect()
         device_cache = {}
@@ -88,15 +95,7 @@ def main():
             # Use ScanResult object to check if USB device descriptor info
             # matches the class/sublclass/protocol pattern for a MIDI device
             dev = MIDIInputDevice(r)
-            set_status((
-                "vid:pid      %04X:%04X\n"
-                "device       %02X:%02X (class:subclass)\n"
-                "interface 0  %02X:%02X\n"
-                "interface 1  %02X:%02X\n"
-                ) % (
-                    (r.vid, r.pid) + r.dev_info + r.int0_info + r.int1_info
-                )
-            )
+            set_status("connected\nvid:pid %04X:%04X\n" % (r.vid, r.pid))
             # Collect garbage to hopefully limit heap fragmentation. If we're
             # lucky, this may help to avoid gc pauses during MIDI input loop.
             r = None
@@ -135,7 +134,7 @@ def main():
                     msg = ' '.join(['%02x' % b for b in data])
                 # Update serial console and picodvi display
                 fast_wr('%s\n' % msg)
-                report.text = msg
+                event.text = msg
                 refresh()
         except USBError as e:
             # This sometimes happens when devices are unplugged. Not always.
