@@ -2,7 +2,9 @@
 <!-- SPDX-FileCopyrightText: Copyright 2025 Sam Blenny -->
 # Fruit Jam USB MIDI Tester
 
-**DRAFT: WORK IN PROGRESS**
+![visualizer screenshot](midi-test-screenshot.png)
+
+USB host MIDI tester for Fruit Jam with picodvi MIDI event visualizer.
 
 This code was developed and tested on CircuitPython 10.0.0-beta.0 with a
 pre-release revision B Fruit Jam prototype. Keep in mind that things may change
