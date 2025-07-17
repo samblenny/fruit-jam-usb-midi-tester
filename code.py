@@ -81,7 +81,7 @@ def main():
 
     prev_b1 = button_1.value
     while True:
-        set_status("Scanning USB bus...", log_it=True)
+        set_status("USB Host\n scanning bus...", log_it=True)
         event.text = ''
         display.refresh()
         gc.collect()
@@ -95,7 +95,9 @@ def main():
             # Use ScanResult object to check if USB device descriptor info
             # matches the class/sublclass/protocol pattern for a MIDI device
             dev = MIDIInputDevice(r)
-            set_status("connected\nvid:pid %04X:%04X\n" % (r.vid, r.pid))
+            set_status(
+                "USB Host\n MIDI Device\n vid:pid %04X:%04X\n" % (r.vid, r.pid)
+            )
             # Collect garbage to hopefully limit heap fragmentation. If we're
             # lucky, this may help to avoid gc pauses during MIDI input loop.
             r = None
