@@ -15,6 +15,7 @@ from terminalio import FONT
 from time import sleep
 from usb.core import USBError, USBTimeoutError
 import usb_host
+import usb_midi
 
 from adafruit_display_text import bitmap_label
 import adafruit_imageload
@@ -120,9 +121,14 @@ def main():
             r = None
             device_cache = {}
             gc.collect()
-            # Cache function references (MicroPython performance boost trick)
+            # Cache fn and obj references (MicroPython performance boost trick)
             fast_wr = sys.stdout.write
             refresh = display.refresh
+            port_out = None
+            for p in usb_midi.ports:
+                if isinstance(p, usb_midi.PortOut):
+                    port_out = p
+                    break
             # Poll for input until Button #1 pressed or USB error.
             # CAUTION: This loop needs to be as efficient as possible. Any
             # extra work here directly adds time to USB MIDI read latency.
@@ -201,6 +207,9 @@ def main():
                 else:
                     # Hexdump other messages: SysEx or whatever
                     msg = '%02x %02x %02x %02x\n' % tuple(data)
+                # Echo message upstream to host computer (usb midi device)
+                if port_out:
+                    port_out.write(data)
                 # Send message to serial console
                 fast_wr(msg)
                 # Visualize non-note messages in text box
