@@ -72,7 +72,22 @@ def main():
     button_1.direction = Direction.INPUT
     button_1.pull = Pull.UP
 
-    # Define status label updater with access to local vars from main()
+    # Nested function to visualize note on/off event
+    # - chan: midi channel in 1-16
+    # - num: note number in range 21-108 (midi range of full size piano)
+    # - note_on: True for note-on event, False for note-off event
+    def visualize(chan, num, note_on):
+        if not ((1 <= chan <= 16) and (21 <= num <= 108)):
+            return
+        # Calculate coordinates for a rectangle in the background image's grid
+        # of channels and notes. These formulas come from measuring pixels
+        # in an image editor (dot grid spacing is 3px per note, 6px per chanel)
+        x1 = 28 + (3 * (num - 21))
+        y1 = 16 + (6 * (chan - 1))
+        color_val = 2 if note_on else 0
+        bitmaptools.fill_region(bg_bitmap, x1, y1, x1+2, y1+5, color_val)
+
+    # Nested function to update status label text
     def set_status(msg, log_it=False):
         status.text = msg
         display.refresh()
@@ -123,20 +138,25 @@ def main():
                 # Parse packet
                 cin = data[0] & 0x0f
                 chan = (data[1] & 0x0f) + 1
+                num = data[2]    # note or control number
                 if cin == 0x08:
                     # Note off
-                    msg = 'ch%d NoteOff %d %d' % (chan, data[2], data[3])
+                    msg = 'ch%d NoteOff %d %d' % (chan, num, data[3])
+                    visualize(chan, num, False)  # visualize in note grid
                 elif cin == 0x09:
                     # Note on
-                    msg = 'ch%d NoteOn  %d %d' % (chan, data[2], data[3])
+                    msg = 'ch%d NoteOn  %d %d' % (chan, num, data[3])
+                    visualize(chan, num, True)  # visualize in note grid
                 elif cin == 0x0b:
                     # CC (control change)
-                    msg = 'ch%d CC %d %d' % (chan, data[2], data[3])
+                    msg = 'ch%d CC %d %d' % (chan, num, data[3])
+                    event.text = msg   # visualize using hexdump
                 else:
+                    # Other messages: SysEx, pitch bend, or whatever
                     msg = ' '.join(['%02x' % b for b in data])
-                # Update serial console and picodvi display
+                    event.text = msg   # visualize using hexdump
+                # Always send message to serial console
                 fast_wr('%s\n' % msg)
-                event.text = msg
                 refresh()
         except USBError as e:
             # This sometimes happens when devices are unplugged. Not always.
