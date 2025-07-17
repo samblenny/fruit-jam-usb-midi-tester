@@ -11,6 +11,7 @@
 # - https://docs.micropython.org/en/latest/reference/speed_python.html
 #
 import gc
+from micropython import const
 from usb import core
 from usb.core import USBError, USBTimeoutError
 
@@ -109,7 +110,7 @@ class MIDIInputDevice:
         data = bytearray(max_packet)
         view = memoryview(data)  # using memoryview reduces heap allocations
         read = self.device.read  # caching function avoids dictionary lookups
-        ms = 3                   # read timeout
+        ms = const(3)            # read timeout
         while True:
             try:
                 # In theory, using a positional argument for the timeout should
@@ -117,18 +118,10 @@ class MIDIInputDevice:
                 n = read(addr, data, ms)
                 # Bulk read result will be 0 or more 4-byte midi packets, so
                 # split that up into 4-byte memoryview slices
-                nada = True
                 for i in range(0, n, 4):
-                    cin = view[i] & 0x0f
-                    if cin == 0x0f and (0xf8 <= view[i+1] <= 0xff):
-                        nada = False
-                        yield view[i:i+4]
-                    else:
-                        # Allow note, cc, non-realtime system exclusive, etc.
-                        nada = False
-                        yield view[i:i+4]
-                if nada:
-                    # Bulk read was 0 bytes long or nothing passed the filter
+                    yield view[i:i+4]
+                # In case of 0 byte bulk read, we still need to yield something
+                if n == 0:
                     yield None
             except USBTimeoutError as e:
                 # This is normal. Timeouts happen fairly often.
